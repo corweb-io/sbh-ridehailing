@@ -1,0 +1,1 @@
+-- The smoke test intentionally starts without seeded ride or event data.

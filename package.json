@@ -6,9 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "telegram": "node --env-file=.env.local scripts/telegram-poll.mjs",
+    "telegram:webhook": "node --env-file=.env.local scripts/telegram-webhook.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "maplibre-gl": "^6.5.0",
     "next": "16.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
@@ -21,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.2",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }
