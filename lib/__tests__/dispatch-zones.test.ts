@@ -139,6 +139,9 @@ describe("driver fare zone assignment", () => {
     expect(taxiOfferText(live, "taxi-12", "fr")).toContain(
       "à l’acceptation, choisissez le quartier",
     );
+    expect(taxiOfferText(live, "taxi-12", "fr")).not.toContain("Villa secret 12");
+    expect(taxiOfferText(live, "taxi-12", "fr")).toContain("quartiers à confirmer");
+    expect(taxiOfferText(live, "taxi-12", "fr")).toContain("Saint-Jean");
   });
 });
 

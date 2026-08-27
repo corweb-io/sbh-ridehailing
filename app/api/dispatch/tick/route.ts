@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     return noStoreJson({ ok: true, skipped: true });
   }
   try {
-    await runDispatchTick();
+    await runDispatchTick({ followup: false });
   } catch (error) {
     console.error(error);
     return noStoreJson({ error: "Tick failed." }, { status: 500 });

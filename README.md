@@ -102,7 +102,7 @@ SQL lives in `supabase/migrations/`. Apply the latest migration before using Sup
 ## Persistence
 
 - **Local default:** JSON files at `.data/rides.json` and `.data/dispatch.json`.
-- **Supabase:** set `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, then run the migrations. The Next.js API writes with a server-only secret; RLS stays on and there are no public policies. Dispatch jobs, booker sessions, staff bindings, and the dispatch activity log use the same keys (`dispatch_jobs`, `dispatch_sessions`, `dispatch_staff`, `dispatch_events`). The privacy migration configures daily `pg_cron` cleanup: precise geolocation after two months and audit records after one year. After switching dispatch to Supabase, staff must `/driver` or `/company` again — the laptop JSON file is not imported.
+- **Supabase:** set `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, then run the migrations. The Next.js API writes with a server-only secret; RLS stays on and there are no public policies. Dispatch jobs, booker sessions, staff bindings, and the dispatch activity log use the same keys (`dispatch_jobs`, `dispatch_sessions`, `dispatch_staff`, `dispatch_events`). The privacy migration configures daily `pg_cron` cleanup: precise geolocation after two months and audit records after one year. Dispatch also schedules a minute `pg_cron` job that GETs `/api/dispatch/tick` (Vault secrets `dispatch_tick_url` and `dispatch_tick_secret`). After switching dispatch to Supabase, staff must `/driver` or `/company` again — the laptop JSON file is not imported.
 
 ## How to view collected demand data
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AdminNav, ADMIN_KEY_STORAGE } from "@/components/AdminNav";
+import { useAdminSession } from "@/components/AdminGate";
+import { AdminNav } from "@/components/AdminNav";
 import type { RideStatus, SmokeTestRide } from "@/lib/types";
 
 type Stats = {
@@ -36,24 +37,27 @@ const currency = new Intl.NumberFormat("fr-FR", {
 });
 
 export default function AdminPage() {
-  const [key, setKey] = useState("");
+  const { key, lock } = useAdminSession();
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function fetchStats(adminKey: string) {
+  async function fetchStats() {
     setLoading(true);
     setError(null);
     try {
       const response = await fetch("/api/admin/stats", {
-        headers: { "x-admin-key": adminKey },
+        headers: { "x-admin-key": key },
       });
+      if (response.status === 401) {
+        lock();
+        return;
+      }
       if (!response.ok) {
-        setError("Accès non autorisé ou service indisponible.");
+        setError("Impossible de charger les statistiques.");
         setStats(null);
         return;
       }
-      sessionStorage.setItem(ADMIN_KEY_STORAGE, adminKey);
       setStats((await response.json()) as Stats);
     } finally {
       setLoading(false);
@@ -61,16 +65,9 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    const stored = sessionStorage.getItem(ADMIN_KEY_STORAGE);
-    if (!stored) return;
-    setKey(stored);
-    void fetchStats(stored);
-  }, []);
-
-  async function load(event: React.FormEvent) {
-    event.preventDefault();
-    await fetchStats(key);
-  }
+    void fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
   return (
     <div className="bg-sand text-ink min-h-dvh px-4 py-6 sm:px-6 sm:py-10">
@@ -79,24 +76,9 @@ export default function AdminPage() {
           <h1 className="display text-3xl sm:text-4xl">Suivi de la demande</h1>
           <AdminNav current="demand" />
         </div>
-        <form
-          className="flex flex-col gap-2 sm:max-w-xl sm:flex-row"
-          onSubmit={(event) => void load(event)}
-        >
-          <input
-            type="password"
-            value={key}
-            onChange={(event) => setKey(event.target.value)}
-            placeholder="Clé d’administration"
-            className="field h-11 min-w-0 flex-1"
-          />
-          <button
-            type="submit"
-            className="bg-ink text-shell rounded-control h-11 px-5 text-sm font-semibold"
-          >
-            {loading ? "Chargement…" : "Afficher"}
-          </button>
-        </form>
+        {loading && !stats ? (
+          <p className="text-ink-muted text-sm">Chargement…</p>
+        ) : null}
         {error ? <p className="text-coral text-sm">{error}</p> : null}
 
         {stats ? (

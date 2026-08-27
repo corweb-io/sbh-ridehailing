@@ -1,7 +1,7 @@
 import { LICENSED_TAXIS, type LicensedTaxi } from "../licensed-taxis";
 import { taxiFitsParty } from "./seats";
 import { TRANSPORT_COMPANIES, type TransportCompany } from "./companies";
-import { canOfferToSupplier, isStaffSessionOpen } from "./staff-session";
+import { canOfferToSupplier, isStaffOnDuty } from "./staff-session";
 import {
   DEFAULT_HOLD_MS,
   DEFAULT_REOFFER_MS,
@@ -26,25 +26,34 @@ export function holdMs() {
   return Number.isFinite(raw) && raw >= 5_000 ? raw : DEFAULT_HOLD_MS;
 }
 
+/** Not a licensed ADS — kept on the roster for founder/device tests, never rung for guests. */
+export const GUEST_EXCLUDED_TAXI_IDS = new Set(["taxi-test"]);
+
 export function eligibleTaxis(
   pax: number,
   taxis: readonly LicensedTaxi[] = LICENSED_TAXIS,
 ) {
-  return taxis.filter((taxi) => taxiFitsParty(taxi, pax));
+  return taxis.filter(
+    (taxi) =>
+      !GUEST_EXCLUDED_TAXI_IDS.has(taxi.id) && taxiFitsParty(taxi, pax),
+  );
 }
 
 export function chatIdForSupplier(
   bindings: readonly StaffBinding[],
   kind: OfferTarget["kind"],
   supplierId: string,
-  fallbackChatId: string,
   now: Date = new Date(),
+  channel?: DispatchJob["channel"],
 ) {
   const bound = bindings.find(
-    (binding) => binding.kind === kind && binding.supplierId === supplierId,
+    (binding) =>
+      binding.kind === kind &&
+      binding.supplierId === supplierId &&
+      (channel == null || binding.channel === channel),
   );
-  if (!bound) return fallbackChatId;
-  if (!isStaffSessionOpen(bound, now)) return null;
+  if (!bound) return null;
+  if (!isStaffOnDuty(bound)) return null;
   return bound.chatId;
 }
 
@@ -53,8 +62,11 @@ function ringSupplierIds(
   ids: string[],
   bindings: readonly StaffBinding[],
   now: Date,
+  channel: DispatchJob["channel"],
 ) {
-  return ids.filter((id) => canOfferToSupplier(bindings, kind, id, now));
+  return ids.filter((id) =>
+    canOfferToSupplier(bindings, kind, id, now, channel),
+  );
 }
 
 function offerTargets(
@@ -64,18 +76,30 @@ function offerTargets(
   bindings: readonly StaffBinding[],
   now: Date,
 ): OfferTarget[] {
-  return ids.map((supplierId) => ({
-    kind,
-    supplierId,
-    chatId: chatIdForSupplier(
-      bindings,
+  return ids
+    .map((supplierId) => ({
       kind,
       supplierId,
-      job.bookerChatId,
-      now,
-    ),
-    status: "pending",
-  }));
+      chatId: chatIdForSupplier(bindings, kind, supplierId, now, job.channel),
+      status: "pending" as const,
+    }))
+    .filter((offer) => offer.chatId && offer.chatId !== job.bookerChatId);
+}
+
+function closePendingOffers(job: DispatchJob): OfferTarget[] {
+  return job.offers.map((offer) =>
+    offer.status === "pending" ? { ...offer, status: "taken" as const } : offer,
+  );
+}
+
+function unfilledJob(job: DispatchJob): DispatchJob {
+  return {
+    ...job,
+    status: "unfilled",
+    hold: null,
+    reofferAt: null,
+    offers: closePendingOffers(job),
+  };
 }
 
 export function isLiveTrip(status: DispatchJob["status"]) {
@@ -89,7 +113,7 @@ export function isOngoingTrip(status: DispatchJob["status"]) {
 }
 
 export const PICKUP_BUFFER_MS = 20 * 60 * 1000;
-export const REMINDER_LEAD_MS = 15 * 60 * 1000;
+export const REMINDER_LEAD_MS = 30 * 60 * 1000;
 
 function occupancyWindow(job: Pick<DispatchJob, "departAt" | "quote">) {
   const start = Date.parse(job.departAt) - PICKUP_BUFFER_MS;
@@ -162,23 +186,18 @@ export function startTaxiRing(
       .filter((id) => !busyIds.has(id)),
     bindings,
     now,
+    job.channel,
   );
-  if (ids.length === 0) {
-    return startCompanyRing(
-      job,
-      now,
-      bindings,
-      TRANSPORT_COMPANIES,
-      windowMs,
-      busyIds,
-    );
+  const offers = offerTargets(job, "taxi", ids, bindings, now);
+  if (offers.length === 0) {
+    return unfilledJob(job);
   }
   return {
     ...job,
     status: "ring_taxis",
     ringStartedAt: now.toISOString(),
     ringEndsAt: new Date(now.getTime() + windowMs).toISOString(),
-    offers: offerTargets(job, "taxi", ids, bindings, now),
+    offers,
     hold: null,
     reofferAt: null,
   };
@@ -204,9 +223,11 @@ export function startCompanyRing(
     companies.map((company) => company.id).filter((id) => !busyIds.has(id)),
     bindings,
     now,
+    job.channel,
   );
-  if (ids.length === 0) {
-    return { ...job, status: "unfilled", offers: job.offers, reofferAt: null };
+  const offers = offerTargets(job, "company", ids, bindings, now);
+  if (offers.length === 0) {
+    return unfilledJob(job);
   }
   return {
     ...job,
@@ -217,7 +238,7 @@ export function startCompanyRing(
       ...job.offers.map((offer) =>
         offer.status === "pending" ? { ...offer, status: "taken" as const } : offer,
       ),
-      ...offerTargets(job, "company", ids, bindings, now),
+      ...offers,
     ],
     hold: null,
     reofferAt: null,
@@ -419,25 +440,21 @@ export function tickJob(
     return job;
   }
   if (job.status === "hold") {
-    return isHoldExpired(job, now) ? cancelJob(job) : job;
+    if (!isHoldExpired(job, now)) return job;
+    const resumed = rejectHold(job, now);
+    if (!resumed) return cancelJob(job);
+    return tickJob(resumed, now, bindings, windowMs, busyIds);
   }
   if (job.status === "ring_taxis") {
     const expired = now.getTime() >= Date.parse(job.ringEndsAt);
     if (expired || allPendingDeclined(job)) {
-      return startCompanyRing(
-        job,
-        now,
-        bindings,
-        TRANSPORT_COMPANIES,
-        windowMs,
-        busyIds,
-      );
+      return unfilledJob(job);
     }
   }
   if (job.status === "ring_companies") {
     const expired = now.getTime() >= Date.parse(job.ringEndsAt);
     if (expired || allPendingDeclined(job)) {
-      return { ...job, status: "unfilled", reofferAt: null };
+      return unfilledJob(job);
     }
   }
   return job;

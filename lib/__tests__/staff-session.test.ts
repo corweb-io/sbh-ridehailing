@@ -53,18 +53,22 @@ describe("staff WhatsApp session", () => {
     ).toBe(true);
   });
 
-  it("skips a bound WhatsApp driver with a closed session", () => {
+  it("still rings a bound on-duty WhatsApp driver after the 24h window", () => {
     const bindings = [
       staff({ lastInboundAt: "2026-08-25T00:00:00.000Z" }),
     ];
-    expect(canOfferToSupplier(bindings, "taxi", "taxi-01", now)).toBe(false);
-    expect(canOfferToSupplier(bindings, "taxi", "taxi-02", now)).toBe(true);
+    expect(canOfferToSupplier(bindings, "taxi", "taxi-01", now)).toBe(true);
+    expect(canOfferToSupplier(bindings, "taxi", "taxi-02", now)).toBe(false);
+  });
+
+  it("does not offer to a taxi that has not bound", () => {
+    expect(canOfferToSupplier([], "taxi", "taxi-01", now)).toBe(false);
   });
 
   it("skips a bound driver who is off duty", () => {
     const bindings = [staff({ onDuty: false })];
     expect(canOfferToSupplier(bindings, "taxi", "taxi-01", now)).toBe(false);
-    expect(canOfferToSupplier(bindings, "taxi", "taxi-02", now)).toBe(true);
+    expect(canOfferToSupplier(bindings, "taxi", "taxi-02", now)).toBe(false);
   });
 
   it("nudges an on-duty WhatsApp driver a few hours before the window closes", () => {

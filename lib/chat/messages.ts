@@ -37,6 +37,7 @@ type ChatMessages = {
   askTime: (day: string) => string;
   askPax: string;
   askPhone: string;
+  useThisWhatsApp: string;
   askZone: (side: "pickup" | "dropoff") => string;
   keyboardRemoved: string;
   confirm: string;
@@ -70,6 +71,7 @@ type ChatMessages = {
   searchingCompanies: (wait: string, label: string) => string;
   noTaxiWentPrivate: (wait: string, label: string) => string;
   unfilled: (label: string) => string;
+  callAStand: string;
   searchInProgress: string;
   offerExpired: string;
   offerGone: string;
@@ -103,6 +105,9 @@ type ChatMessages = {
   when: string;
   passengers: (n: number) => string;
   clientPhone: string;
+  taxiPhone: string;
+  mapsPickup: string;
+  mapsDropoff: string;
   zones: string;
   zonesTbd: string;
   taxiFare: string;
@@ -113,8 +118,9 @@ type ChatMessages = {
   fareBand: (band: FareBand) => string;
   customZoneNote: string;
   driverAssignZone: string;
-  askDriverZone: (side: "pickup" | "dropoff", placeName: string) => string;
+  askDriverZone: (side: "pickup" | "dropoff") => string;
   privateCompanyNote: string;
+  payOnBoard: string;
   pressConfirm: string;
   taxiOffer: (wait: string) => string;
   companyOffer: (wait: string) => string;
@@ -162,8 +168,8 @@ const fr: ChatMessages = {
   languageUpdated: "C’est noté — la suite sera en français.",
   welcome: (channel) =>
     channel === "telegram"
-      ? "Ride Saint-Barth\n\nChauffeur : partagez votre numéro pour les offres."
-      : "Ride Saint-Barth",
+      ? "Ride Saint-Barth\nTaxis agréés · tarif Collectivité · paiement à bord\nUniquement sur l’île.\n\nChauffeur : partagez votre numéro pour les offres."
+      : "Ride Saint-Barth\nTaxis agréés · tarif Collectivité · paiement à bord\nUniquement sur l’île.",
   menuIntro: "Choisissez une action :",
   menuLangBtn: "Langue",
   menuBookingHint: "Une réservation est en cours. Annuler pour en sortir.",
@@ -203,7 +209,8 @@ const fr: ChatMessages = {
   askTime: (day) => `Quelle heure pour ${day} ?\nExemple : 21h00 ou 14:30`,
   askPax: "Combien de passagers ?",
   askPhone:
-    "Numéro du client (celui que le chauffeur appelle). Partagez le contact, ou tapez le numéro.",
+    "Numéro que le chauffeur appellera. Ce WhatsApp, un contact, ou tapez le numéro.",
+  useThisWhatsApp: "Ce WhatsApp",
   askZone: (side) =>
     `Quel quartier tarifaire pour ${side === "pickup" ? "le départ" : "l’arrivée"} ?`,
   keyboardRemoved: "Clavier retiré — utilisez les boutons ci-dessous.",
@@ -241,8 +248,8 @@ const fr: ChatMessages = {
     `Aucun taxi à la capacité demandée. Sociétés privées (${wait})…\n${label}`,
   noTaxiWentPrivate: (wait, label) =>
     `Aucun taxi n’a pris la course. On demande aux sociétés privées (${wait})…\n${label}`,
-  unfilled: (label) =>
-    `Personne n’a pris la course.\n${label}\n/aide pour le menu, ou appelez une station.`,
+  unfilled: (label) => `Personne n’a pris la course.\n${label}`,
+  callAStand: "Relancer, ou appeler une station :",
   searchInProgress:
     "Recherche en cours. Vous pouvez lancer une autre demande pour un autre client.",
   offerExpired: "Offre expirée.",
@@ -259,8 +266,8 @@ const fr: ChatMessages = {
   holdPrompt: (wait) =>
     `Confirmez dans les ${wait}, sinon la demande est annulée.`,
   holdExpired: (label) =>
-    `Délai dépassé. Demande annulée.\n${label}`,
-  holdExpiredDriver: "Le client n’a pas confirmé. Course annulée.",
+    `Ce taxi n’a pas été confirmé à temps. La recherche continue.\n${label}`,
+  holdExpiredDriver: "Le client n’a pas confirmé. La recherche continue sans vous.",
   holdRejected: "Refusé. La recherche continue.",
   holdRejectedDriver: "Le client a refusé. La recherche continue sans vous.",
   loopbackExtra: (remaining, kind) =>
@@ -285,6 +292,9 @@ const fr: ChatMessages = {
   when: "Quand",
   passengers: (n) => `${n} passager${n > 1 ? "s" : ""}`,
   clientPhone: "Tél. client",
+  taxiPhone: "Tél. taxi",
+  mapsPickup: "Carte — départ",
+  mapsDropoff: "Carte — arrivée",
   zones: "Zones",
   zonesTbd: "quartiers à confirmer",
   taxiFare: "Tarif taxi (grille Collectivité)",
@@ -302,10 +312,11 @@ const fr: ChatMessages = {
     "Le chauffeur indiquera le quartier du lieu personnalisé avant de confirmer le tarif.",
   driverAssignZone:
     "Lieu personnalisé : à l’acceptation, choisissez le quartier pour afficher le tarif.",
-  askDriverZone: (side, placeName) =>
-    `Quel quartier tarifaire pour ${side === "pickup" ? "le départ" : "l’arrivée"} ?\n${placeName}`,
+  askDriverZone: (side) =>
+    `Quel quartier tarifaire pour ${side === "pickup" ? "le départ" : "l’arrivée"} ?`,
   privateCompanyNote:
     "Si une société privée prend la course, elle confirmera son propre tarif.",
+  payOnBoard: "Paiement à bord, au tarif affiché.",
   pressConfirm: "Appuyez sur Confirmer pour lancer la recherche.",
   taxiOffer: (wait) => `Offre taxi · ${wait}`,
   companyOffer: (wait) => `Course disponible · ${wait}`,
@@ -324,7 +335,7 @@ const fr: ChatMessages = {
   bookerEnRoute: "Le taxi est en route vers le départ.",
   bookerArrived: "Le taxi est arrivé au départ.",
   bookerCompleted: "Course terminée.",
-  reminderTitle: "Rappel · course dans 15 min",
+  reminderTitle: "Rappel · course dans 30 min",
   rideReleased: "Course libérée. Elle est renvoyée aux autres.",
   bookerRideReleased: "Le taxi a libéré la course. Nouvelle recherche…",
   notYourRide: "Cette course n’est pas à vous.",
@@ -354,8 +365,8 @@ const en: ChatMessages = {
   languageUpdated: "Got it — I’ll continue in English.",
   welcome: (channel) =>
     channel === "telegram"
-      ? "Ride Saint-Barth\n\nDriver: share your number to receive offers."
-      : "Ride Saint-Barth",
+      ? "Ride Saint-Barth\nLicensed taxis · Collectivité fare · pay on board\nSaint-Barth only.\n\nDriver: share your number to receive offers."
+      : "Ride Saint-Barth\nLicensed taxis · Collectivité fare · pay on board\nSaint-Barth only.",
   menuIntro: "Choose an action:",
   menuLangBtn: "Language",
   menuBookingHint: "A booking is in progress. Cancel to leave it.",
@@ -395,7 +406,8 @@ const en: ChatMessages = {
   askTime: (day) => `What time on ${day}?\nExample: 21:00 or 14:30`,
   askPax: "How many passengers?",
   askPhone:
-    "Guest phone (the number the driver will call). Share the contact, or type the number.",
+    "Number the driver will call. This WhatsApp, a contact, or type the number.",
+  useThisWhatsApp: "This WhatsApp",
   askZone: (side) =>
     `Which fare neighborhood for ${side === "pickup" ? "pickup" : "drop-off"}?`,
   keyboardRemoved: "Keyboard hidden — use the buttons below.",
@@ -432,8 +444,8 @@ const en: ChatMessages = {
     `No taxi with enough seats. Asking private companies (${wait})…\n${label}`,
   noTaxiWentPrivate: (wait, label) =>
     `No taxi took the ride. Asking private companies (${wait})…\n${label}`,
-  unfilled: (label) =>
-    `Nobody took the ride.\n${label}\n/help for the menu, or call a stand.`,
+  unfilled: (label) => `Nobody took the ride.\n${label}`,
+  callAStand: "Try again, or call a stand:",
   searchInProgress: "Still searching. You can start another request for another guest.",
   offerExpired: "Offer expired.",
   offerGone: "This offer is no longer available.",
@@ -447,8 +459,9 @@ const en: ChatMessages = {
     `Waiting for the guest to confirm (${wait}). Don’t leave yet.`,
   holdPrompt: (wait) =>
     `Confirm within ${wait} or the request is cancelled.`,
-  holdExpired: (label) => `Time’s up. Request cancelled.\n${label}`,
-  holdExpiredDriver: "The guest didn’t confirm. Ride cancelled.",
+  holdExpired: (label) =>
+    `That taxi wasn’t confirmed in time. Still searching.\n${label}`,
+  holdExpiredDriver: "The guest didn’t confirm. The search continues without you.",
   holdRejected: "Declined. Still searching.",
   holdRejectedDriver: "The guest declined. The search continues without you.",
   loopbackExtra: (remaining, kind) =>
@@ -473,6 +486,9 @@ const en: ChatMessages = {
   when: "When",
   passengers: (n) => `${n} passenger${n > 1 ? "s" : ""}`,
   clientPhone: "Guest phone",
+  taxiPhone: "Taxi phone",
+  mapsPickup: "Map — pickup",
+  mapsDropoff: "Map — drop-off",
   zones: "Zones",
   zonesTbd: "neighborhoods to confirm",
   taxiFare: "Taxi fare (Collectivité grid)",
@@ -490,9 +506,10 @@ const en: ChatMessages = {
     "The driver will set the neighborhood for the custom place before the fare is confirmed.",
   driverAssignZone:
     "Custom place: on accept, pick the neighborhood to see the fare.",
-  askDriverZone: (side, placeName) =>
-    `Which fare neighborhood for ${side === "pickup" ? "pickup" : "drop-off"}?\n${placeName}`,
+  askDriverZone: (side) =>
+    `Which fare neighborhood for ${side === "pickup" ? "pickup" : "drop-off"}?`,
   privateCompanyNote: "If a private company takes the ride, it will confirm its own fare.",
+  payOnBoard: "Pay the driver on board, at the fare shown.",
   pressConfirm: "Tap Confirm to start the search.",
   taxiOffer: (wait) => `Taxi offer · ${wait}`,
   companyOffer: (wait) => `Ride available · ${wait}`,
@@ -510,7 +527,7 @@ const en: ChatMessages = {
   bookerEnRoute: "The taxi is on the way to pickup.",
   bookerArrived: "The taxi has arrived at pickup.",
   bookerCompleted: "Ride completed.",
-  reminderTitle: "Reminder · ride in 15 min",
+  reminderTitle: "Reminder · ride in 30 min",
   rideReleased: "Ride released. It is going back out to others.",
   bookerRideReleased: "The taxi released the ride. Searching again…",
   notYourRide: "This ride isn’t yours.",

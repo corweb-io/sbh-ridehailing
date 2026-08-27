@@ -31,6 +31,12 @@ export function isValidPhone(value: string) {
   return digits.length >= 8 && digits.length <= 15;
 }
 
+/** WhatsApp chat id as a stored passenger phone (`+590…`), or null. */
+export function whatsappPassengerPhone(chatId: string) {
+  const id = whatsappId(chatId);
+  return id && isValidPhone(id) ? `+${id}` : null;
+}
+
 export function phoneHref(value: string) {
   const digits = digitsOnly(value);
   if (!digits) return "tel:";

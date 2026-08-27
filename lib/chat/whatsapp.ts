@@ -1,6 +1,15 @@
-import type { ChatButton, ChatChannel, OutboundMessage } from "../dispatch/types";
+import type {
+  ChatButton,
+  ChatChannel,
+  OutboundMessage,
+  StaffBinding,
+  WhatsAppNotice,
+} from "../dispatch/types";
 import { staffForChat } from "../dispatch/store";
-import { isStaffSessionOpen } from "../dispatch/staff-session";
+import {
+  isStaffSessionOpen,
+  isWhatsAppWindowOpen,
+} from "../dispatch/staff-session";
 import { t } from "./messages";
 import { resolveLocale } from "./locale";
 
@@ -12,6 +21,25 @@ const LIST_TITLE = 24;
 const LIST_ROWS = 10;
 const BODY_LIMIT = 1024;
 const PARAM_LIMIT = 1024;
+const BUTTON_PAYLOAD_LIMIT = 128;
+
+const TEMPLATE_NAMES: Record<WhatsAppNotice, string> = {
+  cancel: "ride_cancelled",
+  reminder: "ride_reminder",
+  offer: "ride_offer",
+  assigned: "ride_assigned",
+  unfilled: "ride_unfilled",
+  trip: "ride_update",
+};
+
+const TEMPLATE_ENV: Record<WhatsAppNotice, string> = {
+  cancel: "WHATSAPP_TEMPLATE_CANCEL",
+  reminder: "WHATSAPP_TEMPLATE_REMINDER",
+  offer: "WHATSAPP_TEMPLATE_OFFER",
+  assigned: "WHATSAPP_TEMPLATE_ASSIGNED",
+  unfilled: "WHATSAPP_TEMPLATE_UNFILLED",
+  trip: "WHATSAPP_TEMPLATE_TRIP",
+};
 
 export function isWhatsAppConfigured() {
   return Boolean(
@@ -105,11 +133,19 @@ export function outboundToWhatsApp(message: OutboundMessage) {
   };
 }
 
-export function noticeTemplateName(kind: NonNullable<OutboundMessage["notice"]>) {
-  if (kind === "cancel") {
-    return process.env.WHATSAPP_TEMPLATE_CANCEL?.trim() || "ride_cancelled";
-  }
-  return process.env.WHATSAPP_TEMPLATE_REMINDER?.trim() || "ride_reminder";
+export function noticeTemplateName(kind: WhatsAppNotice) {
+  const fromEnv = process.env[TEMPLATE_ENV[kind]]?.trim();
+  return fromEnv || TEMPLATE_NAMES[kind];
+}
+
+export function shouldSendWhatsAppTemplate(
+  message: OutboundMessage,
+  staff: StaffBinding | null,
+  now: Date = new Date(),
+) {
+  if (!message.notice) return false;
+  if (staff) return !isStaffSessionOpen(staff, now);
+  return !isWhatsAppWindowOpen(message.customerAt, now);
 }
 
 export function outboundNoticeToWhatsApp(message: OutboundMessage) {
@@ -118,6 +154,33 @@ export function outboundNoticeToWhatsApp(message: OutboundMessage) {
     ? message.templateParams
     : [message.text]
   ).map(templateParam);
+  const components: {
+    type: string;
+    sub_type?: string;
+    index?: string;
+    parameters: { type: "text" | "payload"; text?: string; payload?: string }[];
+  }[] = [
+    {
+      type: "body",
+      parameters: params.map((text) => ({ type: "text" as const, text })),
+    },
+  ];
+  if (message.notice === "offer") {
+    const buttons = (message.buttons ?? []).flat().slice(0, REPLY_BUTTON_LIMIT);
+    buttons.forEach((button, index) => {
+      components.push({
+        type: "button",
+        sub_type: "quick_reply",
+        index: String(index),
+        parameters: [
+          {
+            type: "payload",
+            payload: clip(button.id, BUTTON_PAYLOAD_LIMIT),
+          },
+        ],
+      });
+    });
+  }
   return {
     messaging_product: "whatsapp",
     to: digits(message.chatId),
@@ -125,12 +188,7 @@ export function outboundNoticeToWhatsApp(message: OutboundMessage) {
     template: {
       name: noticeTemplateName(message.notice),
       language: { code: resolveLocale(message.locale) },
-      components: [
-        {
-          type: "body",
-          parameters: params.map((text) => ({ type: "text" as const, text })),
-        },
-      ],
+      components,
     },
   };
 }
@@ -138,8 +196,7 @@ export function outboundNoticeToWhatsApp(message: OutboundMessage) {
 async function payloadFor(message: OutboundMessage) {
   if (message.notice) {
     const staff = await staffForChat("whatsapp", digits(message.chatId));
-    const sessionOpen = staff ? isStaffSessionOpen(staff) : false;
-    if (!sessionOpen) {
+    if (shouldSendWhatsAppTemplate(message, staff)) {
       const template = outboundNoticeToWhatsApp(message);
       if (template) return template;
     }

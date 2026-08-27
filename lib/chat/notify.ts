@@ -1,8 +1,12 @@
-import { companyOfferText, taxiOfferText } from "../dispatch/copy";
+import {
+  companyOfferText,
+  offerNoticeParams,
+  taxiOfferText,
+  tripNoticeParams,
+} from "../dispatch/copy";
 import { jobCallbackId, localeForChat } from "../dispatch/store";
 import type { ChatChannel, DispatchJob, OfferTarget } from "../dispatch/types";
 import { t } from "./messages";
-import { resolveLocale } from "./locale";
 
 function chunkByChat(offers: OfferTarget[]) {
   const groups = new Map<string, OfferTarget[]>();
@@ -26,32 +30,25 @@ export async function notifyRing(
       offer.kind === kind &&
       offer.status === "pending" &&
       offer.chatId &&
+      offer.chatId !== job.bookerChatId &&
       (onlyChatId == null || offer.chatId === onlyChatId),
   );
   const shortId = jobCallbackId(job.id);
-  const loopback =
-    pending.length > 0 &&
-    pending.every((offer) => offer.chatId === job.bookerChatId);
-  const outgoing = loopback ? pending.slice(0, 1) : pending;
-  const bookerLocale = resolveLocale(job.bookerLocale);
 
-  for (const [chatId, offers] of chunkByChat(outgoing)) {
+  for (const [chatId, offers] of chunkByChat(pending)) {
     const offer = offers[0];
-    const locale =
-      chatId === job.bookerChatId
-        ? bookerLocale
-        : await localeForChat(channel.name, chatId);
+    const locale = await localeForChat(channel.name, chatId);
     const copy = t(locale);
     const text =
       kind === "taxi"
         ? taxiOfferText(job, offer.supplierId, locale)
         : companyOfferText(job, offer.supplierId, locale);
-    const remaining = loopback ? pending.length : offers.length;
-    const extra = loopback ? copy.loopbackExtra(remaining, kind) : "";
     await channel.send({
       chatId,
       locale,
-      text: text + extra,
+      notice: "offer",
+      templateParams: offerNoticeParams(job, locale),
+      text,
       buttons: [
         [
           { id: `a:${shortId}:${offer.supplierId}`, label: copy.accept },
@@ -80,6 +77,9 @@ export async function notifyTaken(
       await channel.send({
         chatId,
         locale,
+        notice: "trip",
+        templateParams: tripNoticeParams(job, locale, "taken"),
+        customerAt: job.createdAt,
         text: t(locale).rideTaken,
       });
     }),

@@ -123,7 +123,9 @@ describe("english booker copy", () => {
     expect(text).toContain("Summary");
     expect(text).toContain("Pickup");
     expect(text).toContain("Tap Confirm");
+    expect(text).toContain("Pay the driver on board");
     expect(text).not.toContain("Récapitulatif");
+    expect(text).not.toContain("private company");
   });
 });
 
@@ -184,6 +186,10 @@ describe("role menu", () => {
     expect(ids).toEqual(["go", "courses", MENU_LANG_ID]);
     expect(menuText("fr", { channel: "telegram", staff: null, booking: false }))
       .toContain("Choisissez une action");
+    expect(menuText("fr", { channel: "whatsapp", staff: null, booking: false }))
+      .toContain("tarif Collectivité");
+    expect(menuText("fr", { channel: "whatsapp", staff: null, booking: false }))
+      .toContain("paiement à bord");
   });
 
   it("adds duty for a driver and cancel while a booking is open", () => {

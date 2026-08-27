@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { staffIdentityFromChatId, staffIdentityFromInbound } from "../dispatch/identity";
 import { LICENSED_TAXIS } from "../licensed-taxis";
-import { phoneLabel, sameWhatsAppId } from "../phone";
+import { phoneLabel, sameWhatsAppId, whatsappPassengerPhone } from "../phone";
 
 describe("test driver phone", () => {
   const taxi = LICENSED_TAXIS.find((item) => item.id === "taxi-test");
@@ -22,6 +22,8 @@ describe("test driver phone", () => {
       kind: "taxi",
       supplierId: "taxi-test",
     });
+    expect(whatsappPassengerPhone("590690000000")).toBe("+590690000000");
+    expect(whatsappPassengerPhone("12345")).toBeNull();
   });
 
   it("binds a Telegram chat after that number is shared as your contact", () => {

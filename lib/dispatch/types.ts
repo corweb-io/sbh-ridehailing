@@ -115,7 +115,13 @@ export type BookerSession = {
 
 export type ChatButton = { id: string; label: string };
 
-export type DriverNotice = "cancel" | "reminder";
+export type WhatsAppNotice =
+  | "cancel"
+  | "reminder"
+  | "offer"
+  | "assigned"
+  | "unfilled"
+  | "trip";
 
 export type OutboundMessage = {
   chatId: string;
@@ -125,9 +131,11 @@ export type OutboundMessage = {
   requestLocation?: boolean;
   requestContact?: boolean;
   removeKeyboard?: boolean;
-  /** Reaches WhatsApp drivers even if their 24h session is closed (utility template). */
-  notice?: DriverNotice;
+  /** Reaches WhatsApp even if the 24h customer-service window is closed. */
+  notice?: WhatsAppNotice;
   templateParams?: string[];
+  /** Last customer inbound (ISO). Used for bookers who are not on the staff roster. */
+  customerAt?: string;
 };
 
 export type InboundMessage = {

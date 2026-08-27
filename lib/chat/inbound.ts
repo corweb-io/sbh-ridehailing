@@ -3,6 +3,7 @@ import {
   assignedDriverText,
   bookerJobButtons,
   bookerJobRecapText,
+  bookerNoticeFields,
   bookerTripStatusText,
   companyOfferText,
   coursesButton,
@@ -18,7 +19,6 @@ import {
   acceptedChatId,
   busySupplierIds,
   declineOffer,
-  hasLoopbackPending,
   holdExpiresAtMs,
   isLiveTrip,
   isReofferDue,
@@ -30,7 +30,6 @@ import {
   releaseAssignment,
   reminderDue,
   reminderWaitMs,
-  scheduleLoopbackReoffer,
 } from "../dispatch/engine";
 import {
   clearSessionIfJob,
@@ -101,31 +100,12 @@ function ringStillOpen(job: DispatchJob, now: Date) {
   );
 }
 
-async function queueLoopbackReoffer(
-  channel: ChatChannel,
-  job: DispatchJob,
-  now: Date,
-) {
-  if (!ringStillOpen(job, now) || !hasLoopbackPending(job)) {
-    return advanceJob(channel, job);
-  }
-  const queued = scheduleLoopbackReoffer(job, now);
-  await saveJob(queued);
-  const locale = resolveLocale(job.bookerLocale);
-  await channel.send({
-    chatId: job.bookerChatId,
-    locale,
-    text: t(locale).declineQueued,
-  });
-  return queued;
-}
-
 async function flushDueReoffer(channel: ChatChannel, job: DispatchJob) {
   const now = new Date();
   if (!isReofferDue(job, now)) return job;
   const live = { ...job, reofferAt: null };
   await saveJob(live);
-  await notifyRing(channel, live, live.bookerChatId);
+  await notifyRing(channel, live);
   return live;
 }
 
@@ -225,10 +205,6 @@ async function handleOffer(
     await advanceJob(channel, declined);
     return true;
   }
-  if (hasLoopbackPending(declined)) {
-    await queueLoopbackReoffer(channel, declined, now);
-    return true;
-  }
   await channel.send({
     chatId: inbound.chatId,
     locale: driverLocale,
@@ -246,11 +222,10 @@ async function askDriverZone(
   page: number,
   locale: ChatLocale,
 ) {
-  const place = side === "pickup" ? job.pickup : job.dropoff;
   await channel.send({
     chatId,
     locale,
-    text: t(locale).askDriverZone(side, place.name),
+    text: t(locale).askDriverZone(side),
     buttons: driverZoneButtons(job, side, supplierId, page, locale),
   });
 }
@@ -519,6 +494,7 @@ async function handleTripAction(
       await channel.send({
         chatId: next.bookerChatId,
         locale: bookerLocale,
+        ...bookerNoticeFields("trip", next, bookerLocale, "released"),
         text: t(bookerLocale).bookerRideReleased,
       });
     }
@@ -533,6 +509,7 @@ async function handleTripAction(
     await channel.send({
       chatId: next.bookerChatId,
       locale: bookerLocale,
+      ...bookerNoticeFields("trip", next, bookerLocale),
       text: bookerTripStatusText(next, bookerLocale),
     });
   }
@@ -760,8 +737,9 @@ export async function serveInbound(
   await runDispatchTick();
 }
 
-export async function runDispatchTick() {
+export async function runDispatchTick(options?: { followup?: boolean }) {
   await tickOpenJobs();
+  if (options?.followup === false) return;
   scheduleDispatchFollowup();
 }
 

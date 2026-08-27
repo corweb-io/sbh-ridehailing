@@ -12,17 +12,20 @@ import {
   newPlacesSessionToken,
   resolveTypedPlaceQuery,
 } from "../places-search";
-import { isValidPhone } from "../phone";
+import { isValidPhone, whatsappPassengerPhone } from "../phone";
 import { buildOfficialQuote } from "../quote";
 import type { FareZoneId, Place, PlaceSuggestion } from "../types";
 import {
   assignedBookerText,
   assignedDriverText,
+  bookerNoticeFields,
   bookerQuoteText,
   driverJobButtons,
   driverNoticeParams,
   jobLabel,
   ringDurationLabel,
+  unfilledBookerButtons,
+  unfilledBookerText,
 } from "../dispatch/copy";
 import {
   acceptedChatId,
@@ -534,10 +537,18 @@ async function askPax(channel: ChatChannel, session: BookerSession) {
 async function askPhone(channel: ChatChannel, session: BookerSession) {
   session.step = "phone";
   await saveSession(session);
+  const copy = msg(session);
+  const selfPhone =
+    session.channel === "whatsapp"
+      ? whatsappPassengerPhone(session.chatId)
+      : null;
   await channel.send({
     chatId: session.chatId,
-    text: msg(session).askPhone,
+    text: copy.askPhone,
     requestContact: true,
+    buttons: selfPhone
+      ? [[{ id: "phone:self", label: copy.useThisWhatsApp }]]
+      : undefined,
   });
 }
 
@@ -983,12 +994,31 @@ export async function handleBooker(
   }
 
   if (session.step === "phone") {
+    if (button === "phone:self") {
+      const selfPhone =
+        session.channel === "whatsapp"
+          ? whatsappPassengerPhone(session.chatId)
+          : null;
+      if (selfPhone) {
+        session.passengerPhone = selfPhone;
+        await showQuote(channel, session);
+        return true;
+      }
+    }
     const phone = inbound.contact?.phone ?? (isValidPhone(text) ? text : null);
     if (!phone || !isValidPhone(phone)) {
+      const copy = msg(session);
+      const selfPhone =
+        session.channel === "whatsapp"
+          ? whatsappPassengerPhone(session.chatId)
+          : null;
       await channel.send({
         chatId: session.chatId,
-        text: msg(session).invalidPhone,
+        text: copy.invalidPhone,
         requestContact: true,
+        buttons: selfPhone
+          ? [[{ id: "phone:self", label: copy.useThisWhatsApp }]]
+          : undefined,
       });
       return true;
     }
@@ -1090,18 +1120,26 @@ async function confirmDispatch(channel: ChatChannel, session: BookerSession) {
   const busy = busySupplierIds(await listAssignedJobs(), job);
   const live = startTaxiRing(job, now, bindings, undefined, undefined, busy);
   await saveJob(live);
+  const copy = msg(session);
+  if (live.status !== "ring_taxis") {
+    session.step = "idle";
+    session.jobId = live.id;
+    await saveSession(session);
+    await channel.send({
+      chatId: session.chatId,
+      ...bookerNoticeFields("unfilled", live, session.locale),
+      text: unfilledBookerText(live, session.locale),
+      buttons: unfilledBookerButtons(session.locale),
+    });
+    await clearSessionIfJob(live.channel, live.bookerChatId, live.id);
+    return;
+  }
   session.step = "dispatching";
   session.jobId = live.id;
   await saveSession(session);
-  const wait = ringDurationLabel();
-  const copy = msg(session);
-  const ringLabel =
-    live.status === "ring_taxis"
-      ? copy.searchingTaxi(wait, jobLabel(live))
-      : copy.searchingCompanies(wait, jobLabel(live));
   await channel.send({
     chatId: session.chatId,
-    text: ringLabel,
+    text: copy.searchingTaxi(ringDurationLabel(), jobLabel(live)),
     buttons: [
       [
         { id: `x:${jobCallbackId(live.id)}`, label: copy.cancel },
@@ -1163,6 +1201,7 @@ export async function settleHold(
       await channel.send({
         chatId: accepted.bookerChatId,
         locale: resolveLocale(accepted.bookerLocale),
+        ...bookerNoticeFields("assigned", accepted, accepted.bookerLocale),
         text: assignedBookerText(accepted, accepted.bookerLocale),
       });
     }
@@ -1209,25 +1248,31 @@ export async function advanceJob(channel: ChatChannel, job: DispatchJob) {
   const next = tickJob(job, now, bindings, undefined, busy);
   if (next.status === previous) return next;
   await saveJob(next);
-  if (previous === "hold" && next.status === "cancelled") {
-    const bookerLocale = resolveLocale(next.bookerLocale);
-    await channel.send({
-      chatId: next.bookerChatId,
-      locale: bookerLocale,
-      text: msg(next.bookerLocale).holdExpired(jobLabel(next)),
-    });
+  if (previous === "hold") {
     if (heldChat && heldChat !== next.bookerChatId) {
       const driverLocale = await localeForChat(next.channel, heldChat);
       await channel.send({
         chatId: heldChat,
         locale: driverLocale,
-        notice: "cancel",
-        templateParams: driverNoticeParams("cancel", next, driverLocale),
         text: t(driverLocale).holdExpiredDriver,
       });
     }
-    await notifyTaken(channel, next, heldChat ?? undefined);
-    await clearSessionIfJob(next.channel, next.bookerChatId, next.id);
+    if (next.status === "unfilled") {
+      await channel.send({
+        chatId: next.bookerChatId,
+        locale: resolveLocale(next.bookerLocale),
+        ...bookerNoticeFields("unfilled", next, next.bookerLocale),
+        text: unfilledBookerText(next, next.bookerLocale),
+        buttons: unfilledBookerButtons(next.bookerLocale),
+      });
+      await clearSessionIfJob(next.channel, next.bookerChatId, next.id);
+      return next;
+    }
+    await channel.send({
+      chatId: next.bookerChatId,
+      locale: resolveLocale(next.bookerLocale),
+      text: msg(next.bookerLocale).holdExpired(jobLabel(next)),
+    });
     return next;
   }
   if (next.status === "ring_companies") {
@@ -1245,7 +1290,9 @@ export async function advanceJob(channel: ChatChannel, job: DispatchJob) {
     await channel.send({
       chatId: next.bookerChatId,
       locale: resolveLocale(next.bookerLocale),
-      text: msg(next.bookerLocale).unfilled(jobLabel(next)),
+      ...bookerNoticeFields("unfilled", next, next.bookerLocale),
+      text: unfilledBookerText(next, next.bookerLocale),
+      buttons: unfilledBookerButtons(next.bookerLocale),
     });
     await clearSessionIfJob(next.channel, next.bookerChatId, next.id);
   }

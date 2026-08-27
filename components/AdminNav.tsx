@@ -23,5 +23,3 @@ export function AdminNav({
     </nav>
   );
 }
-
-export const ADMIN_KEY_STORAGE = "ride-admin-key";

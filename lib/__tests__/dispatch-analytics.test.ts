@@ -232,19 +232,24 @@ describe("dispatch analytics", () => {
       channel: "telegram",
       status: "completed",
     });
+    const ringing = job({
+      id: "66666666-6666-6666-6666-666666666666",
+      status: "ring_taxis",
+      createdAt: "2026-08-27T15:00:00.000Z",
+    });
     const stats = buildDispatchStats({
       now,
       range: "30d",
       channel: "whatsapp",
       persistence: "local-file",
-      jobs: [filled, missed, telegram],
+      jobs: [filled, missed, telegram, ringing],
       sessions: [session({ step: "confirm" })],
       staff: [
         {
           channel: "whatsapp",
           chatId: "driver",
           kind: "taxi",
-          supplierId: "taxi-1",
+          supplierId: "taxi-01",
           boundAt: "2026-08-20T00:00:00.000Z",
           onDuty: true,
         } satisfies StaffBinding,
@@ -286,14 +291,21 @@ describe("dispatch analytics", () => {
     expect(stats.kpis.outbound).toBe(1);
     expect(stats.kpis.uniqueBookers).toBe(1);
     expect(stats.kpis.bookingsStarted).toBe(1);
-    expect(stats.kpis.jobs).toBe(2);
+    expect(stats.kpis.jobs).toBe(3);
     expect(stats.kpis.assigned).toBe(1);
     expect(stats.kpis.unfilled).toBe(1);
     expect(stats.kpis.fillRate).toBeCloseTo(0.5);
     expect(stats.kpis.medianMinutesToAssign).toBe(8);
-    expect(stats.funnel.map((row) => row.count)).toEqual([1, 1, 1, 2, 1, 1]);
+    expect(stats.kpis.revenue).toBe(45);
+    expect(stats.funnel.map((row) => row.count)).toEqual([1, 1, 1, 3, 1, 1]);
+    expect(stats.funnel[4]?.conversion).toBeCloseTo(1 / 3);
     expect(stats.live.bookingSessions).toBe(1);
     expect(stats.live.onDutyStaff).toBe(1);
+    expect(stats.live.staff[0]?.label).toMatch(/^Taxi /);
+    expect(stats.live.attention[0]?.status).toBe("ring_taxis");
+    expect(stats.byHour).toHaveLength(24);
+    expect(stats.delta.jobs).toBeNull();
+    expect(stats.delta.fillRate).toBeNull();
     const day = stats.series.find((point) => point.day === "2026-08-20");
     expect(day?.inbound).toBe(2);
     expect(day?.jobs).toBe(1);
@@ -317,6 +329,54 @@ describe("dispatch analytics", () => {
     });
     expect(stats.eventsSince).toBeNull();
     expect(stats.kpis.jobs).toBe(1);
+  });
+
+  it("compares the current window to the previous equal window", () => {
+    const current = job({
+      id: "44444444-4444-4444-4444-444444444444",
+      status: "completed",
+      createdAt: "2026-08-25T12:00:00.000Z",
+      acceptedBy: {
+        kind: "taxi",
+        supplierId: "taxi-01",
+        at: "2026-08-25T12:10:00.000Z",
+        companyRate: null,
+      },
+    });
+    const previous = job({
+      id: "55555555-5555-5555-5555-555555555555",
+      status: "unfilled",
+      createdAt: "2026-08-15T12:00:00.000Z",
+    });
+    const stats = buildDispatchStats({
+      now,
+      range: "7d",
+      channel: "whatsapp",
+      persistence: "local-file",
+      jobs: [current, previous],
+      sessions: [],
+      staff: [],
+      events: [
+        event({
+          actorHash: "now",
+          createdAt: "2026-08-25T12:00:00.000Z",
+        }),
+        event({
+          actorHash: "then-a",
+          createdAt: "2026-08-15T12:00:00.000Z",
+        }),
+        event({
+          actorHash: "then-b",
+          createdAt: "2026-08-15T13:00:00.000Z",
+        }),
+      ],
+    });
+    expect(stats.kpis.inbound).toBe(1);
+    expect(stats.previous.inbound).toBe(2);
+    expect(stats.delta.inbound).toBeCloseTo(-0.5);
+    expect(stats.kpis.fillRate).toBe(1);
+    expect(stats.previous.fillRate).toBe(0);
+    expect(stats.delta.fillRate).toBe(1);
   });
 });
 

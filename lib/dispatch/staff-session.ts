@@ -1,4 +1,4 @@
-import type { OfferTarget, StaffBinding } from "./types";
+import type { DispatchChannel, OfferTarget, StaffBinding } from "./types";
 
 /** Meta’s customer-service window is 24h; leave a margin so we never send after it closed. */
 export const WHATSAPP_SESSION_MS = 23 * 60 * 60 * 1000;
@@ -13,14 +13,21 @@ export function isStaffOnDuty(staff: Pick<StaffBinding, "onDuty">) {
   return staff.onDuty !== false;
 }
 
+export function isWhatsAppWindowOpen(
+  lastInboundAt: string | null | undefined,
+  now: Date = new Date(),
+) {
+  const last = Date.parse(lastInboundAt ?? "");
+  if (!Number.isFinite(last)) return false;
+  return now.getTime() - last < WHATSAPP_SESSION_MS;
+}
+
 export function isStaffSessionOpen(
   staff: StaffBinding,
   now: Date = new Date(),
 ) {
   if (staff.channel !== "whatsapp") return true;
-  const last = Date.parse(staffLastInboundAt(staff));
-  if (!Number.isFinite(last)) return false;
-  return now.getTime() - last < WHATSAPP_SESSION_MS;
+  return isWhatsAppWindowOpen(staffLastInboundAt(staff), now);
 }
 
 export function canOfferToSupplier(
@@ -28,13 +35,16 @@ export function canOfferToSupplier(
   kind: OfferTarget["kind"],
   supplierId: string,
   now: Date = new Date(),
+  channel?: DispatchChannel,
 ) {
   const bound = bindings.find(
-    (binding) => binding.kind === kind && binding.supplierId === supplierId,
+    (binding) =>
+      binding.kind === kind &&
+      binding.supplierId === supplierId &&
+      (channel == null || binding.channel === channel),
   );
-  if (!bound) return true;
-  if (!isStaffOnDuty(bound)) return false;
-  return isStaffSessionOpen(bound, now);
+  if (!bound) return false;
+  return isStaffOnDuty(bound);
 }
 
 export function sessionNudgeDue(staff: StaffBinding, now: Date = new Date()) {

@@ -2,11 +2,17 @@ import { FARE_ZONE_LABELS } from "../fares";
 import { formatEuro } from "../format";
 import { t } from "../chat/messages";
 import { intlTag, resolveLocale, type ChatLocale } from "../chat/locale";
+import { mapsDirHref } from "../maps";
 import { companyById } from "./companies";
 import { holdMs, ringMs } from "./engine";
 import { LICENSED_TAXIS, taxiCaption } from "../licensed-taxis";
-import { formatTripWhen } from "../taxis";
-import type { ChatButton, DispatchJob } from "./types";
+import { formatTripWhen, TAXI_STANDS } from "../taxis";
+import type {
+  ChatButton,
+  DispatchJob,
+  OutboundMessage,
+  WhatsAppNotice,
+} from "./types";
 
 function durationLabel(ms: number) {
   if (ms < 60_000) return `${Math.round(ms / 1000)} s`;
@@ -39,6 +45,31 @@ export function supplierLabel(kind: "taxi" | "company", id: string) {
   const taxi = LICENSED_TAXIS.find((item) => item.id === id);
   if (!taxi) return id;
   return `${taxiCaption(taxi)} · ${taxi.name}`;
+}
+
+export function supplierPhoneLabel(kind: "taxi" | "company", id: string) {
+  if (kind === "company") {
+    return companyById(id)?.phoneLabel ?? null;
+  }
+  return LICENSED_TAXIS.find((item) => item.id === id)?.phoneLabel ?? null;
+}
+
+export function unfilledBookerText(
+  job: Pick<DispatchJob, "pickup" | "dropoff" | "pax" | "passengerPhone">,
+  locale?: ChatLocale | null,
+) {
+  const msg = copy(locale);
+  const stands = TAXI_STANDS.map((stand) => {
+    const name = stand.name.replace(/^Station taxi — /, "");
+    return `${name} · ${stand.phoneLabel}`;
+  }).join("\n");
+  return [msg.unfilled(jobLabel(job)), "", msg.callAStand, stands].join("\n");
+}
+
+export function unfilledBookerButtons(
+  locale?: ChatLocale | null,
+): ChatButton[][] {
+  return [[{ id: "go", label: copy(locale).newRequest }]];
 }
 
 function copy(locale?: ChatLocale | null) {
@@ -77,10 +108,20 @@ export function bookerQuoteText(
     `${msg.taxiFare} : ${fare}`,
     "",
     ...(job.quote.fare == null ? [msg.customZoneNote, ""] : []),
-    msg.privateCompanyNote,
+    msg.payOnBoard,
     "",
     msg.pressConfirm,
   ].join("\n");
+}
+
+function offerZoneLine(
+  label: string,
+  place: DispatchJob["pickup"],
+  locale?: ChatLocale | null,
+) {
+  const msg = copy(locale);
+  const zone = place.fareZone;
+  return `${label} : ${zone ? FARE_ZONE_LABELS[zone] : msg.zonesTbd}`;
 }
 
 export function taxiOfferText(
@@ -96,8 +137,8 @@ export function taxiOfferText(
     msg.taxiOffer(ringDurationLabel()),
     who,
     "",
-    `${msg.pickup} : ${job.pickup.name}`,
-    `${msg.dropoff} : ${job.dropoff.name}`,
+    offerZoneLine(msg.pickup, job.pickup, locale),
+    offerZoneLine(msg.dropoff, job.dropoff, locale),
     `${msg.passengers(job.pax)} · ${fare}`,
     whenText(job.departAt, locale),
     job.quote.fare == null ? msg.driverAssignZone : null,
@@ -121,11 +162,10 @@ export function companyOfferText(
     msg.companyOffer(ringDurationLabel()),
     who,
     "",
-    `${msg.pickup} : ${job.pickup.name}`,
-    `${msg.dropoff} : ${job.dropoff.name}`,
+    offerZoneLine(msg.pickup, job.pickup, locale),
+    offerZoneLine(msg.dropoff, job.dropoff, locale),
     msg.passengers(job.pax),
     whenText(job.departAt, locale),
-    `${msg.clientPhone} : ${job.passengerPhone}`,
     fare,
     job.quote.fare == null ? msg.driverAssignZone : null,
     "",
@@ -133,6 +173,29 @@ export function companyOfferText(
   ]
     .filter((line) => line != null)
     .join("\n");
+}
+
+function placeMapsUrl(place: DispatchJob["pickup"]) {
+  if (place.lat == null || place.lng == null) return null;
+  if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return null;
+  return mapsDirHref({ lat: place.lat, lng: place.lng });
+}
+
+function mapsLine(
+  label: string,
+  place: DispatchJob["pickup"],
+) {
+  const url = placeMapsUrl(place);
+  return url ? `${label} : ${url}` : null;
+}
+
+function supplierPhoneLine(
+  kind: "taxi" | "company",
+  id: string,
+  locale?: ChatLocale | null,
+) {
+  const phone = supplierPhoneLabel(kind, id);
+  return phone ? `${copy(locale).taxiPhone} : ${phone}` : null;
 }
 
 export function assignedBookerText(job: DispatchJob, locale?: ChatLocale | null) {
@@ -149,8 +212,12 @@ export function assignedBookerText(job: DispatchJob, locale?: ChatLocale | null)
     jobLabel(job),
     job.acceptedBy.kind === "taxi" ? msg.taxiAccepted : msg.companyAccepted,
     who,
+    supplierPhoneLine(job.acceptedBy.kind, job.acceptedBy.supplierId, locale),
     rate,
-  ].join("\n");
+    mapsLine(msg.mapsPickup, job.pickup),
+  ]
+    .filter((line) => line != null)
+    .join("\n");
 }
 
 export function holdBookerText(job: DispatchJob, locale?: ChatLocale | null) {
@@ -165,10 +232,13 @@ export function holdBookerText(job: DispatchJob, locale?: ChatLocale | null) {
     jobLabel(job),
     job.hold.kind === "taxi" ? msg.taxiAccepted : msg.companyAccepted,
     who,
+    supplierPhoneLine(job.hold.kind, job.hold.supplierId, locale),
     rate,
     "",
     msg.holdPrompt(holdDurationLabel()),
-  ].join("\n");
+  ]
+    .filter((line) => line != null)
+    .join("\n");
 }
 
 export function holdBookerButtons(
@@ -240,7 +310,11 @@ export function assignedDriverText(
     msg.passengers(job.pax),
     `${msg.clientPhone} : ${job.passengerPhone}`,
     jobFareLine(job, locale),
-  ].join("\n");
+    mapsLine(msg.mapsPickup, job.pickup),
+    mapsLine(msg.mapsDropoff, job.dropoff),
+  ]
+    .filter((line) => line != null)
+    .join("\n");
 }
 
 export function reminderText(job: DispatchJob, locale?: ChatLocale | null) {
@@ -254,14 +328,110 @@ export function reminderText(job: DispatchJob, locale?: ChatLocale | null) {
   ].join("\n");
 }
 
+function routeLine(
+  job: Pick<DispatchJob, "pickup" | "dropoff">,
+) {
+  return `${job.pickup.name} → ${job.dropoff.name}`;
+}
+
+function offerRouteLine(
+  job: Pick<DispatchJob, "pickup" | "dropoff">,
+  locale?: ChatLocale | null,
+) {
+  const msg = copy(locale);
+  const pickup = job.pickup.fareZone
+    ? FARE_ZONE_LABELS[job.pickup.fareZone]
+    : msg.zonesTbd;
+  const dropoff = job.dropoff.fareZone
+    ? FARE_ZONE_LABELS[job.dropoff.fareZone]
+    : msg.zonesTbd;
+  return `${pickup} → ${dropoff}`;
+}
+
 export function driverNoticeParams(
   kind: "cancel" | "reminder",
   job: Pick<DispatchJob, "pickup" | "dropoff" | "departAt" | "passengerPhone">,
   locale?: ChatLocale | null,
 ) {
-  const route = `${job.pickup.name} → ${job.dropoff.name}`;
+  const route = routeLine(job);
   if (kind === "cancel") return [route];
   return [route, whenText(job.departAt, locale), job.passengerPhone];
+}
+
+export function offerNoticeParams(
+  job: Pick<DispatchJob, "pickup" | "dropoff" | "departAt" | "pax">,
+  locale?: ChatLocale | null,
+) {
+  return [
+    offerRouteLine(job, locale),
+    copy(locale).passengers(job.pax),
+    whenText(job.departAt, locale),
+  ];
+}
+
+export function assignedNoticeParams(
+  job: DispatchJob,
+  locale?: ChatLocale | null,
+) {
+  if (!job.acceptedBy) return [routeLine(job)];
+  const phone =
+    supplierPhoneLabel(job.acceptedBy.kind, job.acceptedBy.supplierId) ?? "-";
+  return [
+    routeLine(job),
+    supplierLabel(job.acceptedBy.kind, job.acceptedBy.supplierId),
+    phone,
+  ];
+}
+
+export function unfilledNoticeParams(
+  job: Pick<DispatchJob, "pickup" | "dropoff">,
+) {
+  return [routeLine(job)];
+}
+
+export type TripNoticeKind =
+  | "en_route"
+  | "arrived"
+  | "completed"
+  | "released"
+  | "taken";
+
+export function tripNoticeParams(
+  job: Pick<DispatchJob, "pickup" | "dropoff" | "status">,
+  locale?: ChatLocale | null,
+  kind?: TripNoticeKind,
+) {
+  const msg = copy(locale);
+  const status =
+    kind === "taken"
+      ? msg.rideTaken
+      : kind === "released"
+        ? msg.bookerRideReleased
+        : kind === "en_route" || job.status === "en_route"
+          ? msg.bookerEnRoute
+          : kind === "arrived" || job.status === "arrived"
+            ? msg.bookerArrived
+            : msg.bookerCompleted;
+  return [routeLine(job), status];
+}
+
+export function bookerNoticeFields(
+  kind: Extract<WhatsAppNotice, "assigned" | "unfilled" | "trip">,
+  job: DispatchJob,
+  locale?: ChatLocale | null,
+  tripKind?: TripNoticeKind,
+): Pick<OutboundMessage, "notice" | "templateParams" | "customerAt"> {
+  const params =
+    kind === "assigned"
+      ? assignedNoticeParams(job, locale)
+      : kind === "unfilled"
+        ? unfilledNoticeParams(job)
+        : tripNoticeParams(job, locale, tripKind);
+  return {
+    notice: kind,
+    templateParams: params,
+    customerAt: job.createdAt,
+  };
 }
 
 export function upcomingRidesText(
