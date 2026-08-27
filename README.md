@@ -106,12 +106,12 @@ SQL lives in `supabase/migrations/`. Apply the latest migration before using Sup
 
 ## How to view collected demand data
 
-1. Open [http://localhost:3000/admin](http://localhost:3000/admin) for passenger-app demand, or [http://localhost:3000/admin/dispatch](http://localhost:3000/admin/dispatch) for the WhatsApp / Telegram dispatch cockpit
-2. Enter `ADMIN_SECRET` (minimum 24 characters; there is no insecure default)
+1. Open [http://localhost:3000/admin](http://localhost:3000/admin) or [http://localhost:3000/admin/dispatch](http://localhost:3000/admin/dispatch)
+2. Enter `ADMIN_SECRET` once (minimum 24 characters; there is no insecure default). That password unlocks every `/admin` view for the tab.
 3. Demand: totals, quote → request conversion, average fare/distance, origins/destination quartiers, and recent requests
 4. Dispatch: messages, unique bookers, booking funnel, fill rate, activity over 7/30/90 days, live rings, and recent jobs (no passenger phone)
 
-The demand payload is at `GET /api/admin/stats` with header `x-admin-key`. Dispatch stats are at `GET /api/admin/dispatch?range=30d&channel=whatsapp`.
+The demand payload is at `GET /api/admin/stats` with header `x-admin-key`. Dispatch stats are at `GET /api/admin/dispatch?range=30d&channel=whatsapp`. The shared unlock check is `GET /api/admin/session`.
 
 ## Production safeguards
 
