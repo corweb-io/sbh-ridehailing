@@ -62,7 +62,15 @@ import type {
   StaffBinding,
 } from "../dispatch/types";
 import { channelOrNull } from "./channels";
-import { advanceJob, cancelOpenJob, handleBooker, settleHold, startBooking } from "./booker";
+import {
+  advanceJob,
+  bookFromFreeText,
+  cancelOpenJob,
+  handleBooker,
+  settleHold,
+  startBooking,
+} from "./booker";
+import { looksLikeRideRequest } from "../ride-request";
 import {
   isLangMenuRequest,
   isStartIntent,
@@ -625,10 +633,15 @@ export async function handleInbound(
   const locale =
     session?.locale ?? parseLocale(inbound.locale) ?? null;
   if (!locale) {
+    const pending =
+      !inbound.buttonId && looksLikeRideRequest(inbound.text ?? "")
+        ? inbound.text!.trim()
+        : null;
     await saveSession({
       ...(session ?? idleBookerSession(inbound.channel, inbound.chatId)),
       step: "lang",
-      afterLang: isStartIntent(inbound) ? "book" : "menu",
+      afterLang: pending || isStartIntent(inbound) ? "book" : "menu",
+      pendingText: pending,
     });
     await sendLanguagePicker(channel, inbound.chatId);
     return;
@@ -665,6 +678,20 @@ export async function handleInbound(
   if (isStartIntent(inbound)) {
     await startBooking(chat, inbound, session);
     return;
+  }
+
+  if (
+    (!session || session.step === "idle") &&
+    !inbound.buttonId &&
+    looksLikeRideRequest(inbound.text ?? "")
+  ) {
+    const handled = await bookFromFreeText(
+      chat,
+      inbound,
+      session,
+      inbound.text!.trim(),
+    );
+    if (handled) return;
   }
 
   if (session) {

@@ -133,6 +133,8 @@ export function idleBookerSession(
     pax: null,
     passengerPhone: null,
     jobId: null,
+    pendingText: null,
+    draftText: null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -166,6 +168,8 @@ function normalizeSession(session: BookerSession): BookerSession {
     afterLang: session.afterLang === "book" || session.afterLang === "menu"
       ? session.afterLang
       : null,
+    pendingText: session.pendingText ?? null,
+    draftText: session.draftText ?? null,
   };
 }
 

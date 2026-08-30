@@ -95,6 +95,8 @@ function session(overrides: Partial<BookerSession> = {}): BookerSession {
     pax: null,
     passengerPhone: null,
     jobId: null,
+    pendingText: null,
+    draftText: null,
     updatedAt: "2026-08-20T16:00:00.000Z",
     ...overrides,
   };
@@ -187,6 +189,14 @@ describe("dispatch lifecycle events", () => {
     expect(names).toContain("offer_accepted");
     expect(names).toContain("offer_declined");
     expect(names).toContain("job_status");
+  });
+
+  it("starts a booking when a free-text extract jumps to confirm", () => {
+    const events = sessionLifecycleEvents(session({ step: "idle" }), session({
+      step: "confirm",
+      draftText: "2 · Eden Rock → Aéroport · maintenant",
+    }));
+    expect(events.map((item) => item.name)).toContain("booking_started");
   });
 
   it("starts a booking when the session enters empty pickup", () => {

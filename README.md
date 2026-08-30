@@ -26,7 +26,9 @@ Booking, quotes, and rings are channel-agnostic (`lib/chat/inbound.ts`, `lib/dis
 
 **WhatsApp Cloud API**
 
-Same FSM. Set `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, and `WHATSAPP_VERIFY_TOKEN`, then attach Meta’s webhook to `/api/whatsapp/webhook`. Buttons and lists are converted from the same outbound payload (≤3 choices → reply buttons, more → list). Meta Business Manager is still the blocker, not the product.
+Same booker/dispatch as Telegram. Bookers can send one message (`2 · Eden Rock → Aéroport · maintenant`). The backend extracts pickup, drop-off, time, and passengers (deterministic first, Haiku when the text is messy), then replies with the fare recap and Confirm / Edit / Cancel. WhatsApp uses the chat number as the passenger phone. Missing places still use the stepwise buttons. Set `AI_GATEWAY_API_KEY` (or Vercel OIDC) for the model fallback.
+
+Set `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, and `WHATSAPP_VERIFY_TOKEN`, then attach Meta’s webhook to `/api/whatsapp/webhook`. Buttons and lists are converted from the same outbound payload (≤3 choices → reply buttons, more → list). Meta Business Manager is still the blocker, not the product.
 
 Optional: `DISPATCH_RING_MS=15000` for 15-second rings while testing.
 

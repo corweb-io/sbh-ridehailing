@@ -24,6 +24,7 @@ type ChatMessages = {
   backDay: string;
   askPickup: string;
   askPickupRepeat: string;
+  readingRequest: string;
   choosePlace: string;
   samePickup: (label: string) => string;
   placeNoted: (side: "pickup" | "dropoff", place: {
@@ -187,8 +188,11 @@ const fr: ChatMessages = {
   laterDays: "Plus loin →",
   backWhen: "← Quand",
   backDay: "← Jour",
-  askPickup: "D’où part-on ? Partagez la position, ou tapez un nom :",
-  askPickupRepeat: "Même départ qu’avant, ou un autre lieu :",
+  askPickup:
+    "Décrivez la course en un message (départ, destination, passagers, heure), partagez la position, ou tapez un lieu.\nExemple : 2 · Eden Rock → Aéroport · maintenant",
+  askPickupRepeat:
+    "Même départ qu’avant, un autre lieu, ou toute la course en un message :",
+  readingRequest: "Un instant — je lis votre demande.",
   choosePlace: "Ou choisissez un lieu :",
   samePickup: (label) => `Même départ · ${label}`,
   placeNoted: (side, place) => {
@@ -384,8 +388,11 @@ const en: ChatMessages = {
   laterDays: "Later →",
   backWhen: "← When",
   backDay: "← Day",
-  askPickup: "Where from? Share your location, or type a name:",
-  askPickupRepeat: "Same pickup as last time, or somewhere else:",
+  askPickup:
+    "Describe the ride in one message (pickup, drop-off, passengers, time), share your location, or type a place.\nExample: 2 · Eden Rock → airport · now",
+  askPickupRepeat:
+    "Same pickup as last time, another place, or the whole ride in one message:",
+  readingRequest: "One moment — reading your request.",
   choosePlace: "Or pick a place:",
   samePickup: (label) => `Same pickup · ${label}`,
   placeNoted: (side, place) => {

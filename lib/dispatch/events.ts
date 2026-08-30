@@ -293,15 +293,13 @@ export function sessionLifecycleEvents(
     actorRole: "booker" as const,
   };
 
+  const leftIdle =
+    !previous || previous.step === "idle" || previous.step === "lang";
   if (
-    next.step === "pickup" &&
-    !next.pickup &&
-    !next.dropoff &&
+    leftIdle &&
+    BOOKING_FLOW_STEPS.has(next.step) &&
     !next.jobId &&
-    (previous?.step !== "pickup" ||
-      Boolean(
-        previous.pickup || previous.dropoff || previous.jobId || previous.pax,
-      ))
+    previous?.step !== next.step
   ) {
     drafts.push({
       ...base,

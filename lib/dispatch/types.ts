@@ -110,6 +110,8 @@ export type BookerSession = {
   pax: number | null;
   passengerPhone: string | null;
   jobId: string | null;
+  pendingText: string | null;
+  draftText: string | null;
   updatedAt: string;
 };
 

@@ -14,6 +14,14 @@ import {
 } from "../places-search";
 import { isValidPhone, whatsappPassengerPhone } from "../phone";
 import { buildOfficialQuote } from "../quote";
+import { hydrateRideRequest } from "../ride-request-hydrate";
+import {
+  looksLikeRideRequest,
+  mergeRideRequestFields,
+  parseRideRequestDeterministic,
+  rideRequestNeedsModel,
+  type RideRequestParseMethod,
+} from "../ride-request";
 import type { FareZoneId, Place, PlaceSuggestion } from "../types";
 import {
   assignedBookerText,
@@ -442,6 +450,11 @@ export async function startBooking(
   inbound: InboundMessage,
   _existing: BookerSession | null,
 ) {
+  const pending = _existing?.pendingText?.trim();
+  if (pending && looksLikeRideRequest(pending)) {
+    await bookFromFreeText(channel, inbound, _existing, pending);
+    return;
+  }
   const last = await lastJobForChat(inbound.channel, inbound.chatId);
   const session = emptySession(
     inbound.channel,
@@ -456,6 +469,103 @@ export async function startBooking(
     last?.pickup ?? null,
     session.locale,
   );
+}
+
+export async function bookFromFreeText(
+  channel: ChatChannel,
+  inbound: InboundMessage,
+  existing: BookerSession | null,
+  text: string,
+): Promise<boolean> {
+  const trimmed = text.trim();
+  if (!trimmed || !looksLikeRideRequest(trimmed)) return false;
+
+  const session = emptySession(
+    inbound.channel,
+    inbound.chatId,
+    existing?.locale ?? parseLocale(inbound.locale) ?? null,
+  );
+  session.draftText = trimmed;
+  session.pendingText = null;
+  session.step = "pickup";
+  await saveSession(session);
+
+  let fields = parseRideRequestDeterministic(trimmed);
+  let method: RideRequestParseMethod = "deterministic";
+  if (rideRequestNeedsModel(fields)) {
+    const { canUseRideRequestAi, extractRideRequestWithAi } = await import(
+      "../ride-request-ai"
+    );
+    if (canUseRideRequestAi()) {
+      await channel.send({
+        chatId: session.chatId,
+        text: msg(session).readingRequest,
+      });
+      const ai = await extractRideRequestWithAi(trimmed);
+      if (ai?.isRideRequest === false) {
+        await clearSession(session.channel, session.chatId);
+        return false;
+      }
+      if (ai) {
+        fields = mergeRideRequestFields(fields, ai);
+        method = "hybrid";
+      }
+    }
+  }
+  if (fields.isRideRequest === false) {
+    await clearSession(session.channel, session.chatId);
+    return false;
+  }
+
+  const draft = await hydrateRideRequest(fields, {
+    method,
+    language: resolveLocale(session.locale),
+    parseWhen: parseDepartTime,
+    whatsappChatId:
+      session.channel === "whatsapp" ? session.chatId : null,
+  });
+
+  session.pickup = draft.pickup;
+  session.dropoff = draft.destination;
+  session.departAt = draft.departAt;
+  session.pax = draft.pax;
+  session.passengerPhone = draft.passengerPhone;
+  if (draft.pickupChoices.length) {
+    session.step = "place_pick";
+    session.placePickSide = "pickup";
+    session.placeQuery = fields.pickupText;
+    session.placeCandidates = draft.pickupChoices;
+    await saveSession(session);
+    await channel.send({
+      chatId: session.chatId,
+      text: msg(session).pickPlace(fields.pickupText ?? trimmed),
+      buttons: placeChoiceButtons(
+        draft.pickupChoices,
+        fields.pickupText ?? trimmed,
+        session.locale,
+      ),
+    });
+    return true;
+  }
+  if (draft.destinationChoices.length) {
+    session.step = "place_pick";
+    session.placePickSide = "dropoff";
+    session.placeQuery = fields.destinationText;
+    session.placeCandidates = draft.destinationChoices;
+    await saveSession(session);
+    await channel.send({
+      chatId: session.chatId,
+      text: msg(session).pickPlace(fields.destinationText ?? trimmed),
+      buttons: placeChoiceButtons(
+        draft.destinationChoices,
+        fields.destinationText ?? trimmed,
+        session.locale,
+      ),
+    });
+    return true;
+  }
+  await continueBooking(channel, session, Boolean(session.draftText));
+  return true;
 }
 
 async function askDropoff(channel: ChatChannel, session: BookerSession) {
@@ -611,6 +721,46 @@ function resetPlaceSearch(session: BookerSession) {
   session.placesToken = null;
 }
 
+async function continueBooking(
+  channel: ChatChannel,
+  session: BookerSession,
+  fromText: boolean,
+) {
+  if (!session.pickup) {
+    session.step = "pickup";
+    await saveSession(session);
+    await promptPickup(channel, session.chatId, null, session.locale);
+    return;
+  }
+  if (!session.dropoff) {
+    await askDropoff(channel, session);
+    return;
+  }
+  if (!fromText && !session.departAt) {
+    await askWhen(channel, session);
+    return;
+  }
+  if (!session.departAt) session.departAt = new Date().toISOString();
+  if (!fromText && !session.pax) {
+    await askPax(channel, session);
+    return;
+  }
+  if (!session.pax) session.pax = 1;
+  if (!session.passengerPhone) {
+    const self =
+      session.channel === "whatsapp"
+        ? whatsappPassengerPhone(session.chatId)
+        : null;
+    if (self && fromText) {
+      session.passengerPhone = self;
+    } else {
+      await askPhone(channel, session);
+      return;
+    }
+  }
+  await showQuote(channel, session);
+}
+
 async function applyPlace(
   channel: ChatChannel,
   session: BookerSession,
@@ -620,10 +770,18 @@ async function applyPlace(
   resetPlaceSearch(session);
   if (side === "pickup") {
     session.pickup = place;
+    if (session.draftText && session.dropoff) {
+      await continueBooking(channel, session, true);
+      return;
+    }
     await askDropoff(channel, session);
     return;
   }
   session.dropoff = place;
+  if (session.draftText) {
+    await continueBooking(channel, session, true);
+    return;
+  }
   await askWhen(channel, session);
 }
 
@@ -828,6 +986,10 @@ export async function handleBooker(
       return true;
     }
     const typed = typedPlaceQuery(inbound);
+    if (typed && looksLikeRideRequest(typed)) {
+      const handled = await bookFromFreeText(channel, inbound, session, typed);
+      if (handled) return true;
+    }
     if (typed) {
       await offerTypedPlace(channel, session, typed, "pickup");
       return true;
@@ -1029,7 +1191,11 @@ export async function handleBooker(
 
   if (session.step === "confirm") {
     if (button === "edit") {
-      await startBooking(channel, inbound, session);
+      await startBooking(channel, inbound, {
+        ...session,
+        pendingText: null,
+        draftText: null,
+      });
       return true;
     }
     if (
